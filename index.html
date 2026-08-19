@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V Rising Castle Planner</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-left">
+    <button id="nav-home" class="crumb">V Rising Castle Planner</button>
+    <span id="crumb-region" class="crumb-sep"></span>
+    <span id="crumb-plot" class="crumb-sep"></span>
+  </div>
+  <div class="topbar-right">
+    <button id="btn-design">Design Castle Outline</button>
+    <button id="btn-import">Import Plan</button>
+    <button id="btn-export" disabled>Export Plan</button>
+    <button id="btn-settings">Settings</button>
+    <input type="file" id="file-import" accept="application/json" hidden>
+  </div>
+</header>
+
+<div id="settings-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Settings</h3>
+      <button id="btn-settings-close" class="modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <label class="settings-row">
+        <input type="checkbox" id="settings-custom-floor-limit">
+        Custom floor limit
+      </label>
+      <label class="settings-row settings-row-input">
+        Max Floors
+        <input type="number" id="settings-max-floors" min="0" step="1" inputmode="numeric" disabled>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-clear-settings" class="danger">Clear Settings</button>
+    </div>
+  </div>
+</div>
+
+<main id="view-home" class="view">
+  <div class="home-header">
+    <h1>Choose a Region</h1>
+    <button id="btn-clear-all" class="danger" disabled>Clear All Plots</button>
+  </div>
+  <div id="map-wrap" class="map-wrap">
+    <img src="assets/map.webp" alt="Map of Vardoran" class="map-img" draggable="false">
+    <div id="map-pins" class="map-pins"></div>
+  </div>
+</main>
+
+<main id="view-design" class="view hidden">
+  <h1>Design a Castle Outline</h1>
+  <p class="hint-text">Paint rooms to sketch the castle you want to build — any painted cell counts as part of the footprint. The grid is sized to the biggest plot in the game (<span id="design-dims"></span>), so anything you draw could theoretically fit somewhere. Rotations (90°/180°/270°) are tried automatically.</p>
+  <div class="design-controls">
+    <button id="btn-design-clear">Clear</button>
+    <button id="btn-design-find" class="primary">Find Matching Plots</button>
+    <span id="design-cellcount" class="hint-text" style="margin:0;"></span>
+  </div>
+  <div class="editor-layout">
+    <div class="palette" id="design-palette"></div>
+    <div class="grid-wrap">
+      <div id="design-grid" class="grid"></div>
+    </div>
+  </div>
+  <div id="design-results"></div>
+</main>
+
+<main id="view-region" class="view hidden">
+  <h2 id="region-title"></h2>
+  <div id="plot-grid" class="plot-grid"></div>
+</main>
+
+<main id="view-plot" class="view hidden">
+  <div class="plot-header">
+    <h2 id="plot-title"></h2>
+    <div class="plot-header-right">
+      <div id="tile-usage" class="tile-usage"></div>
+      <button id="btn-clear-plot" class="danger">Clear Plot</button>
+    </div>
+  </div>
+  <div class="floor-tabs-row">
+    <div class="floor-clipboard-controls">
+      <button id="btn-copy-floor">Copy Floor</button>
+      <button id="btn-paste-floor" disabled>Paste Floor</button>
+      <button id="btn-clear-floor" class="danger">Clear Floor</button>
+    </div>
+  </div>
+  <div class="tabs">
+    <button id="btn-layer-floor" class="active">Floors</button>
+    <button id="btn-layer-wall">Walls</button>
+  </div>
+  <div class="editor-layout">
+    <div class="palette" id="palette"></div>
+    <div class="palette hidden" id="wall-palette"></div>
+    <div class="grid-wrap">
+      <div class="grid-row">
+        <div id="grid-stack" class="grid-stack">
+          <div id="grid" class="grid"></div>
+          <div id="floor-below-overlay" class="floor-below-overlay"></div>
+          <svg id="wall-overlay"></svg>
+        </div>
+        <div id="floor-spinner" class="floor-spinner">
+          <button id="btn-floor-up" class="spinner-arrow" aria-label="Floor up">&#9650;</button>
+          <div id="floor-spinner-value" class="spinner-value">0</div>
+          <button id="btn-floor-down" class="spinner-arrow" aria-label="Floor down">&#9660;</button>
+        </div>
+      </div>
+      <div id="legend" class="legend"></div>
+    </div>
+  </div>
+</main>
+
+<script src="data.js"></script>
+<script src="plotimages.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
