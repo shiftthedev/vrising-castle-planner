@@ -102,9 +102,11 @@
     { key: '__erase', label: 'Erase', erase: true },
     { key: 'wall', label: 'Wall', color: '#5a5a5a', width: 5 },
     { key: 'door', label: 'Door', color: '#c9973f', width: 5 },
-    { key: 'window', label: 'Window', color: '#5FA5D7', width: 5 }
+    { key: 'window', label: 'Window', color: '#5FA5D7', width: 5 },
+    { key: 'pillar', label: 'Pillar', color: '#8f8f8f', width: 9, point: true }
   ];
   var EDGE_IDLE_COLOR = 'rgba(255,255,255,0.08)';
+  var POINT_IDLE_RADIUS = 3;
 
   // Must match --cell-size in style.css exactly — the wall overlay is plain SVG, not CSS grid,
   // so it needs the real pixel size to line its lines up with the cells underneath.
@@ -214,7 +216,7 @@
     for (var i = 0; i < plots.length; i++) if (plots[i].id === plotId) return plots[i];
     return null;
   }
-  // A floor's saved plan is { cells: {"r,c": {...}}, edges: {"h:r,c" / "v:r,c": {...}} }.
+  // A floor's saved plan is { cells: {"r,c": {...}}, edges: {"h:r,c" / "v:r,c" / "p:r,c": {...}} }.
   // Older exported plans stored the cell map directly as the floor's value with no wrapper —
   // isNestedFloorPlan tells those apart so old plan files still load correctly.
   function isNestedFloorPlan(fp) { return !!fp && (fp.cells !== undefined || fp.edges !== undefined); }
@@ -698,6 +700,7 @@
     var e = parseEdgeKey(key);
     if (e.axis === 'h') return e.r >= 0 && e.r <= height && e.c >= 0 && e.c < width;
     if (e.axis === 'v') return e.r >= 0 && e.r < height && e.c >= 0 && e.c <= width;
+    if (e.axis === 'p') return e.r >= 0 && e.r <= height && e.c >= 0 && e.c <= width;
     return false;
   }
 
@@ -1000,6 +1003,7 @@
       group.appendChild(titleEl);
 
       function apply() {
+        if (state.wallTool.point) return; // point tools (e.g. Pillar) don't paint edges
         if (state.wallTool.erase) {
           delete fp.edges[key];
           visible.setAttribute('stroke', EDGE_IDLE_COLOR);
@@ -1024,6 +1028,53 @@
       svg.appendChild(group);
     }
 
+    // Pillars sit on grid vertices (corners), not edges — a separate point layer
+    // sharing the same fp.edges bag under a "p:r,c" key so save/copy/paste stay generic.
+    function makePoint(key, cx, cy) {
+      var group = document.createElementNS(svgNS, 'g');
+      var placed = fp.edges[key];
+
+      var visible = document.createElementNS(svgNS, 'circle');
+      visible.setAttribute('cx', cx); visible.setAttribute('cy', cy);
+      visible.setAttribute('r', placed ? placed.width / 2 : POINT_IDLE_RADIUS);
+      visible.setAttribute('fill', placed ? placed.color : EDGE_IDLE_COLOR);
+      group.appendChild(visible);
+
+      var hit = document.createElementNS(svgNS, 'circle');
+      hit.setAttribute('cx', cx); hit.setAttribute('cy', cy);
+      hit.setAttribute('r', 8);
+      hit.setAttribute('fill', 'transparent');
+      hit.setAttribute('class', 'edge-hit');
+      var titleEl = document.createElementNS(svgNS, 'title');
+      titleEl.textContent = placed ? placed.label : 'Empty';
+      group.appendChild(titleEl);
+
+      function apply() {
+        if (!state.wallTool.point && !state.wallTool.erase) return; // line tools don't paint points
+        if (state.wallTool.erase) {
+          delete fp.edges[key];
+          visible.setAttribute('fill', EDGE_IDLE_COLOR);
+          visible.setAttribute('r', POINT_IDLE_RADIUS);
+        } else {
+          var val = { type: state.wallTool.key, label: state.wallTool.label, color: state.wallTool.color, width: state.wallTool.width };
+          fp.edges[key] = val;
+          visible.setAttribute('fill', val.color);
+          visible.setAttribute('r', val.width / 2);
+        }
+        saveToStorage();
+      }
+      hit.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        painting = true;
+        apply();
+      });
+      hit.addEventListener('mouseenter', function () {
+        if (painting) apply();
+      });
+      group.appendChild(hit);
+      svg.appendChild(group);
+    }
+
     for (var r = 0; r <= height; r++) {
       for (var c = 0; c < width; c++) {
         makeEdge('h:' + r + ',' + c, c * CELL_PX, r * CELL_PX, (c + 1) * CELL_PX, r * CELL_PX);
@@ -1032,6 +1083,11 @@
     for (var r2 = 0; r2 < height; r2++) {
       for (var c2 = 0; c2 <= width; c2++) {
         makeEdge('v:' + r2 + ',' + c2, c2 * CELL_PX, r2 * CELL_PX, c2 * CELL_PX, (r2 + 1) * CELL_PX);
+      }
+    }
+    for (var r3 = 0; r3 <= height; r3++) {
+      for (var c3 = 0; c3 <= width; c3++) {
+        makePoint('p:' + r3 + ',' + c3, c3 * CELL_PX, r3 * CELL_PX);
       }
     }
   }
