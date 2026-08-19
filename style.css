@@ -416,6 +416,24 @@ canvas.plot-thumb { image-rendering: pixelated; }
   cursor: pointer;
   font-size: 0.8rem;
 }
+.palette-custom input[type="color"] {
+  flex: 0 0 30px;
+  width: 30px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.palette-custom-remove {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.palette-custom-remove:hover { color: var(--text); }
 
 .modal-overlay {
   position: fixed;

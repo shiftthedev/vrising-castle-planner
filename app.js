@@ -121,7 +121,8 @@
     wallTool: WALL_PALETTE[1],
     plans: {},
     outline: {}, // "r,c" -> true, cells filled in the castle-outline designer
-    settings: { customFloorLimit: false, maxFloors: 5 }
+    settings: { customFloorLimit: false, maxFloors: 5 },
+    customRooms: [] // user-defined room types, shown in the palette's Custom group
   };
   var painting = false;
 
@@ -168,6 +169,43 @@
     } catch (err) {
       // corrupt/unreadable saved data — fall back to defaults
     }
+  }
+
+  var CUSTOM_ROOMS_KEY = 'vrising-castle-planner:customRooms:v1';
+  function saveCustomRooms() {
+    try {
+      localStorage.setItem(CUSTOM_ROOMS_KEY, JSON.stringify(state.customRooms));
+    } catch (err) {
+      // storage full/unavailable — custom rooms still work in-memory this session
+    }
+  }
+  function loadCustomRooms() {
+    try {
+      var raw = localStorage.getItem(CUSTOM_ROOMS_KEY);
+      if (!raw) return;
+      var data = JSON.parse(raw);
+      if (Array.isArray(data)) {
+        state.customRooms = data.filter(function (r) {
+          return r && typeof r.key === 'string' && typeof r.label === 'string' && typeof r.color === 'string';
+        });
+      }
+    } catch (err) {
+      // corrupt/unreadable saved data — start fresh rather than crash
+    }
+  }
+
+  // Removing a custom room type must not leave orphaned tiles painted with it.
+  function clearRoomTypeFromPlans(type) {
+    Object.keys(state.plans).forEach(function (k) {
+      var plan = state.plans[k];
+      Object.keys(plan).forEach(function (floorName) {
+        var fp = plan[floorName];
+        var cells = floorPlanCells(fp);
+        Object.keys(cells).forEach(function (cellKey) {
+          if (cells[cellKey] && cells[cellKey].type === type) delete cells[cellKey];
+        });
+      });
+    });
   }
 
   function planKey(sheet, plotId) { return sheet + '|' + plotId; }
@@ -715,14 +753,17 @@
 
   function renderPalette(target) {
     target.innerHTML = '';
+    var items = PALETTE.concat(state.customRooms.map(function (r) {
+      return { key: r.key, label: r.label, color: r.color, group: 'Custom', custom: true };
+    }));
     var groups = [];
-    PALETTE.forEach(function (item) { if (groups.indexOf(item.group) === -1) groups.push(item.group); });
+    items.forEach(function (item) { if (groups.indexOf(item.group) === -1) groups.push(item.group); });
     groups.forEach(function (g) {
       var label = document.createElement('div');
       label.className = 'palette-group-label';
       label.textContent = g;
       target.appendChild(label);
-      PALETTE.filter(function (i) { return i.group === g; }).forEach(function (item) {
+      items.filter(function (i) { return i.group === g; }).forEach(function (item) {
         var row = document.createElement('div');
         row.className = 'palette-item' + (state.tool.key === item.key ? ' selected' : '');
         var sw = document.createElement('div');
@@ -731,7 +772,26 @@
         row.appendChild(sw);
         var lb = document.createElement('span');
         lb.textContent = item.label;
+        lb.style.flex = '1';
         row.appendChild(lb);
+        if (item.custom) {
+          var del = document.createElement('span');
+          del.textContent = '×';
+          del.title = 'Remove custom room';
+          del.className = 'palette-custom-remove';
+          del.onclick = function (ev) {
+            ev.stopPropagation();
+            if (!confirm('Remove "' + item.label + '" and clear any tiles painted with it?')) return;
+            state.customRooms = state.customRooms.filter(function (r) { return r.key !== item.key; });
+            saveCustomRooms();
+            clearRoomTypeFromPlans(item.key);
+            saveToStorage();
+            if (state.tool.key === item.key) state.tool = PALETTE[1];
+            renderPalette(target);
+            if (state.view === 'plot') renderPlotView();
+          };
+          row.appendChild(del);
+        }
         row.onclick = function () { state.tool = item; renderPalette(target); };
         target.appendChild(row);
       });
@@ -742,15 +802,25 @@
     var input = document.createElement('input');
     input.placeholder = 'Custom room name';
     input.type = 'text';
+    var colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = '#9c7a3f';
     var btn = document.createElement('button');
-    btn.textContent = 'Use';
+    btn.textContent = 'Save';
     btn.onclick = function () {
       var name = input.value.trim();
       if (!name) return;
-      state.tool = { key: 'custom:' + name, label: name, color: '#9c7a3f', group: 'Custom' };
+      var key = 'custom:' + name;
+      var room = { key: key, label: name, color: colorInput.value };
+      state.customRooms = state.customRooms.filter(function (r) { return r.key !== key; });
+      state.customRooms.push(room);
+      saveCustomRooms();
+      state.tool = { key: room.key, label: room.label, color: room.color, group: 'Custom', custom: true };
+      input.value = '';
       renderPalette(target);
     };
     customWrap.appendChild(input);
+    customWrap.appendChild(colorInput);
     customWrap.appendChild(btn);
     target.appendChild(customWrap);
   }
@@ -1109,6 +1179,7 @@
 
   loadFromStorage();
   loadSettings();
+  loadCustomRooms();
   syncSettingsUI();
   renderHome();
 })();
