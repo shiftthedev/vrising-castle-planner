@@ -141,6 +141,11 @@ h2 { font-size: 1.15rem; margin: 4px 0 14px; }
   transform: translate(-50%, -50%) scale(1.35);
   background: #ffce6b;
 }
+.map-pin.selected {
+  background: #ffce6b;
+  transform: translate(-50%, -50%) scale(1.35);
+  cursor: grab;
+}
 
 .map-pin-label {
   position: absolute;

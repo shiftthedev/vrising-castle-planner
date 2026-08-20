@@ -3,18 +3,19 @@
 
   var DATA = window.REGIONS_DATA || {};
 
-  // x/y are fractions (0-1) of the map image, pin position = center of region on the map.
-  // Eyeballed against assets/map.webp — nudge these if a pin lands off-zone.
+  // Sheet-to-display-name grouping only — no map coordinates here anymore. Plot pin
+  // positions live in window.PLOT_PINS (see plotpins.js), keyed "<sheet>|<plotId>".
   var REGION_GROUPS = [
-    { name: 'Oakveil Woodlands', sheets: ['Oakveil Woodlands'], x: 0.184, y: 0.231 },
-    { name: 'Silverlight Hills', sheets: ['Silverlight Hills'], x: 0.217, y: 0.447 },
-    { name: 'Hallowed Mountains', sheets: ['Hallowed Mountains'], x: 0.741, y: 0.578 },
-    { name: 'Gloomrot North', sheets: ['Gloomrot North'], x: 0.345, y: 0.176 },
-    { name: 'Gloomrot South', sheets: ['Gloomrot South'], x: 0.492, y: 0.229 },
-    { name: 'Dunley Farmlands', sheets: ['Dunley Farmlands West', 'Dunley Farmlands East'], x: 0.492, y: 0.45 },
-    { name: 'Cursed Forest', sheets: ['Cursed Forest'], x: 0.671, y: 0.207 },
-    { name: 'Farbane Woods', sheets: ['Farbane Woods 1', 'Farbane Woods 2', 'Farbane Woods 3', 'Farbane Woods 4', 'Farbane Woods 5'], x: 0.482, y: 0.687 }
+    { name: 'Oakveil Woodlands', sheets: ['Oakveil Woodlands'] },
+    { name: 'Silverlight Hills', sheets: ['Silverlight Hills'] },
+    { name: 'Hallowed Mountains', sheets: ['Hallowed Mountains'] },
+    { name: 'Gloomrot North', sheets: ['Gloomrot North'] },
+    { name: 'Gloomrot South', sheets: ['Gloomrot South'] },
+    { name: 'Dunley Farmlands', sheets: ['Dunley Farmlands West', 'Dunley Farmlands East'] },
+    { name: 'Cursed Forest', sheets: ['Cursed Forest'] },
+    { name: 'Farbane Woods', sheets: ['Farbane Woods 1', 'Farbane Woods 2', 'Farbane Woods 3', 'Farbane Woods 4', 'Farbane Woods 5'] }
   ];
+  var PLOT_PINS = window.PLOT_PINS || {};
 
   // Sub-areas (Farbane Woods 1-5, Dunley Farmlands West/East) are an internal data-organization
   // detail only — anything shown to the user should say just the region name.
@@ -260,7 +261,7 @@
 
   var el = {};
   ['nav-home', 'crumb-region', 'crumb-plot', 'btn-import', 'btn-export', 'file-import',
-   'view-home', 'view-region', 'view-plot', 'view-design', 'map-pins', 'region-title', 'plot-grid',
+   'view-home', 'view-plot', 'view-design', 'map-pins',
    'plot-title', 'tile-usage', 'palette', 'grid', 'legend', 'floor-below-overlay',
    'btn-design', 'design-dims', 'design-grid', 'design-palette', 'design-cellcount', 'design-results',
    'btn-design-clear', 'btn-design-find', 'btn-copy-floor', 'btn-paste-floor', 'btn-clear-floor',
@@ -273,7 +274,6 @@
   function showView(name) {
     state.view = name;
     el.viewHome.classList.toggle('hidden', name !== 'home');
-    el.viewRegion.classList.toggle('hidden', name !== 'region');
     el.viewPlot.classList.toggle('hidden', name !== 'plot');
     el.viewDesign.classList.toggle('hidden', name !== 'design');
     var hasPlans = Object.keys(state.plans).length !== 0;
@@ -289,8 +289,6 @@
 
     if (state.group) {
       el.crumbRegion.textContent = state.group.name;
-      el.crumbRegion.classList.add('link');
-      el.crumbRegion.onclick = function () { openRegion(state.group); };
     }
     if (state.plotId !== null && state.plotId !== undefined) {
       el.crumbPlot.textContent = 'Plot ' + state.plotId;
@@ -300,22 +298,26 @@
   // ---- Home ----
   function renderHome() {
     el.mapPins.innerHTML = '';
-    REGION_GROUPS.forEach(function (group) {
-      var totalPlots = 0;
-      group.sheets.forEach(function (s) { totalPlots += ((DATA[s] && DATA[s].plots) || []).length; });
+    Object.keys(PLOT_PINS).forEach(function (key) {
+      var sep = key.lastIndexOf('|');
+      var sheet = key.slice(0, sep);
+      var plotId = parseInt(key.slice(sep + 1), 10);
+      var plot = getPlot(sheet, plotId);
+      if (!plot) return;
+      var pos = PLOT_PINS[key];
 
       var pin = document.createElement('button');
       pin.className = 'map-pin';
-      pin.style.left = (group.x * 100) + '%';
-      pin.style.top = (group.y * 100) + '%';
-      pin.setAttribute('aria-label', group.name);
-      pin.onclick = function () { openRegion(group); };
+      pin.style.left = (pos.x * 100) + '%';
+      pin.style.top = (pos.y * 100) + '%';
+      pin.setAttribute('aria-label', 'Plot ' + plotId);
+      pin.onclick = function () { openPlot(sheet, plotId); };
 
       var label = document.createElement('div');
       label.className = 'map-pin-label';
-      label.style.left = (group.x * 100) + '%';
-      label.style.top = (group.y * 100) + '%';
-      label.innerHTML = group.name + '<span class="plots">' + totalPlots + ' castle plots</span>';
+      label.style.left = (pos.x * 100) + '%';
+      label.style.top = (pos.y * 100) + '%';
+      label.innerHTML = '#' + plotId + '<span class="plots">' + groupNameFor(sheet) + '</span>';
 
       el.mapPins.appendChild(pin);
       el.mapPins.appendChild(label);
@@ -323,40 +325,6 @@
     state.group = null; state.sheet = null; state.plotId = null;
     updateBreadcrumb();
     showView('home');
-  }
-
-  // ---- Region ----
-  function openRegion(group) {
-    state.group = group;
-    state.sheet = null;
-    renderRegionView();
-  }
-
-  function renderRegionView() {
-    el.regionTitle.textContent = state.group.name;
-    var entries = [];
-    state.group.sheets.forEach(function (sheet) {
-      ((DATA[sheet] && DATA[sheet].plots) || []).forEach(function (p) {
-        entries.push({ sheet: sheet, plot: p });
-      });
-    });
-    entries.sort(function (a, b) { return a.plot.id - b.plot.id; });
-
-    el.plotGrid.innerHTML = '';
-    entries.forEach(function (entry) {
-      var sheet = entry.sheet, p = entry.plot;
-      var badge = document.createElement('div');
-      var has = planHasContent(sheet, p.id);
-      badge.className = 'plot-badge' + (has ? ' has-plan' : '');
-      badge.innerHTML = '<div class="pid">#' + p.id + '</div><div class="ptiles">' +
-        (p.base_tiles ? p.base_tiles + ' base tiles' : '') + '</div>';
-      badge.insertBefore(makePlotThumb(sheet, p), badge.firstChild);
-      badge.onclick = function () { openPlot(sheet, p.id); };
-      el.plotGrid.appendChild(badge);
-    });
-    state.sheet = null; state.plotId = null;
-    updateBreadcrumb();
-    showView('region');
   }
 
   function makePlotThumb(sheet, plot) {
@@ -1155,7 +1123,6 @@
           saveToStorage();
           el.btnExport.disabled = Object.keys(state.plans).length === 0;
           el.btnClearAll.disabled = el.btnExport.disabled;
-          if (state.view === 'region') renderRegionView();
           if (state.view === 'plot') renderPlotView();
           if (state.view === 'home') renderHome();
         }
