@@ -566,5 +566,21 @@ window.PLOT_PINS = {
   "Farbane Woods 5|31": {
     "x": 0.573,
     "y": 0.732
+  },
+  "Farbane Woods 2|4": {
+    "x": 0.449,
+    "y": 0.805
+  },
+  "Farbane Woods 5|33": {
+    "x": 0.595,
+    "y": 0.728
+  },
+  "Farbane Woods 1|41": {
+    "x": 0.222,
+    "y": 0.645
+  },
+  "Gloomrot North|130": {
+    "x": 0.279,
+    "y": 0.187
   }
 };

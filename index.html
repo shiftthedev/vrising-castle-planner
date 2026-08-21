@@ -17,31 +17,12 @@
     <button id="btn-design">Design Castle Outline</button>
     <button id="btn-import">Import Plan</button>
     <button id="btn-export" disabled>Export Plan</button>
-    <button id="btn-settings">Settings</button>
     <input type="file" id="file-import" accept="application/json" hidden>
   </div>
 </header>
 
-<div id="settings-overlay" class="modal-overlay hidden">
-  <div class="modal">
-    <div class="modal-header">
-      <h3>Settings</h3>
-      <button id="btn-settings-close" class="modal-close" aria-label="Close">&times;</button>
-    </div>
-    <div class="modal-body">
-      <label class="settings-row">
-        <input type="checkbox" id="settings-custom-floor-limit">
-        Custom floor limit
-      </label>
-      <label class="settings-row settings-row-input">
-        Max Floors
-        <input type="number" id="settings-max-floors" min="0" step="1" inputmode="numeric" disabled>
-      </label>
-    </div>
-    <div class="modal-footer">
-      <button id="btn-clear-settings" class="danger">Clear Settings</button>
-    </div>
-  </div>
+<div id="plot-image-overlay" class="modal-overlay hidden">
+  <img id="plot-image-full" class="plot-image-full" alt="Plot reference photo">
 </div>
 
 <main id="view-home" class="view">
@@ -74,7 +55,12 @@
 
 <main id="view-plot" class="view hidden">
   <div class="plot-header">
-    <h2 id="plot-title"></h2>
+    <div class="plot-header-left">
+      <button id="btn-plot-image" class="plot-image-btn hidden" aria-label="View plot reference photo">
+        <img id="plot-image-thumb" alt="">
+      </button>
+      <h2 id="plot-title"></h2>
+    </div>
     <div class="plot-header-right">
       <div id="tile-usage" class="tile-usage"></div>
       <button id="btn-clear-plot" class="danger">Clear Plot</button>

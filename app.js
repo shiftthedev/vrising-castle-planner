@@ -104,6 +104,8 @@
     { key: 'wall', label: 'Wall', color: '#5a5a5a', width: 5 },
     { key: 'door', label: 'Door', color: '#c9973f', width: 5 },
     { key: 'window', label: 'Window', color: '#5FA5D7', width: 5 },
+    { key: 'fence', label: 'Fence', color: '#a67c4a', width: 4 },
+    { key: 'hedge', label: 'Hedge', color: '#4f9d4f', width: 7 },
     { key: 'pillar', label: 'Pillar', color: '#8f8f8f', width: 9, point: true }
   ];
   var EDGE_IDLE_COLOR = 'rgba(255,255,255,0.08)';
@@ -124,9 +126,24 @@
     wallTool: WALL_PALETTE[1],
     plans: {},
     outline: {}, // "r,c" -> true, cells filled in the castle-outline designer
-    settings: { customFloorLimit: false, maxFloors: 5 },
     customRooms: [] // user-defined room types, shown in the palette's Custom group
   };
+
+  // Every plot's terrain data only ever defines 'Ground Floor' and, where it actually differs
+  // (stairs/platform markers from the ground-floor landing), 'Floor 1'. Floors above that reuse
+  // the Floor 1 (or Ground Floor) terrain grid — only their painted room plan is unique per floor.
+  var FLOOR_CAP = 100;
+  function floorNameAt(i) { return i === 0 ? 'Ground Floor' : 'Floor ' + i; }
+  function floorIndexOf(name) { return name === 'Ground Floor' ? 0 : parseInt(name.slice(6), 10); }
+  function allFloorNames() {
+    var names = [];
+    for (var i = 0; i <= FLOOR_CAP; i++) names.push(floorNameAt(i));
+    return names;
+  }
+  function getFloorTerrain(plot, floorName) {
+    if (floorIndexOf(floorName) === 0) return plot.floors['Ground Floor'];
+    return plot.floors['Floor 1'] || plot.floors['Ground Floor'];
+  }
   var painting = false;
 
   // ---- Local persistence (autosave to this browser) ----
@@ -151,26 +168,6 @@
       if (data && data.outline) state.outline = data.outline;
     } catch (err) {
       // corrupt/unreadable saved data — start fresh rather than crash
-    }
-  }
-
-  var SETTINGS_KEY = 'vrising-castle-planner:settings:v1';
-  function saveSettings() {
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings));
-    } catch (err) {
-      // storage full/unavailable — settings still work in-memory this session
-    }
-  }
-  function loadSettings() {
-    try {
-      var raw = localStorage.getItem(SETTINGS_KEY);
-      if (!raw) return;
-      var data = JSON.parse(raw);
-      if (data && typeof data.customFloorLimit === 'boolean') state.settings.customFloorLimit = data.customFloorLimit;
-      if (data && Number.isInteger(data.maxFloors) && data.maxFloors >= 0) state.settings.maxFloors = data.maxFloors;
-    } catch (err) {
-      // corrupt/unreadable saved data — fall back to defaults
     }
   }
 
@@ -267,8 +264,7 @@
    'btn-design-clear', 'btn-design-find', 'btn-copy-floor', 'btn-paste-floor', 'btn-clear-floor',
    'btn-clear-plot', 'btn-clear-all', 'btn-floor-up', 'btn-floor-down', 'floor-spinner-value',
    'btn-layer-floor', 'btn-layer-wall', 'wall-palette', 'wall-overlay',
-   'btn-settings', 'settings-overlay', 'btn-settings-close', 'settings-custom-floor-limit',
-   'settings-max-floors', 'btn-clear-settings'
+   'btn-plot-image', 'plot-image-thumb', 'plot-image-overlay', 'plot-image-full'
   ].forEach(function (id) { el[id.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); })] = document.getElementById(id); });
 
   function showView(name) {
@@ -307,17 +303,19 @@
       var pos = PLOT_PINS[key];
 
       var pin = document.createElement('button');
-      pin.className = 'map-pin';
+      pin.className = 'map-pin' + (planHasContent(sheet, plotId) ? ' has-plan' : '');
       pin.style.left = (pos.x * 100) + '%';
       pin.style.top = (pos.y * 100) + '%';
       pin.setAttribute('aria-label', 'Plot ' + plotId);
       pin.onclick = function () { openPlot(sheet, plotId); };
 
+      var imgSrc = plotImageSrc(sheet, plotId);
       var label = document.createElement('div');
       label.className = 'map-pin-label';
       label.style.left = (pos.x * 100) + '%';
       label.style.top = (pos.y * 100) + '%';
-      label.innerHTML = '#' + plotId + '<span class="plots">' + groupNameFor(sheet) + '</span>';
+      label.innerHTML = (imgSrc ? '<img class="map-pin-label-img" src="' + imgSrc + '" alt="">' : '') +
+        '#' + plotId + '<span class="plots">' + groupNameFor(sheet) + '</span>';
 
       el.mapPins.appendChild(pin);
       el.mapPins.appendChild(label);
@@ -327,9 +325,13 @@
     showView('home');
   }
 
-  function makePlotThumb(sheet, plot) {
+  function plotImageSrc(sheet, plotId) {
     var images = window.PLOT_IMAGES && window.PLOT_IMAGES[sheet];
-    var src = images && images[plot.id];
+    return (images && images[plotId]) || null;
+  }
+
+  function makePlotThumb(sheet, plot) {
+    var src = plotImageSrc(sheet, plot.id);
     if (src) {
       var img = document.createElement('img');
       img.className = 'plot-thumb';
@@ -347,8 +349,7 @@
   }
 
   function drawPlotThumb(canvas, plot) {
-    var floorName = Object.keys(plot.floors)[0];
-    var floor = plot.floors[floorName];
+    var floor = plot.floors['Ground Floor'];
     var interior = computeInterior(floor.cells, floor.width, floor.height);
     var scale = Math.min(canvas.width / floor.width, canvas.height / floor.height);
     var offX = (canvas.width - floor.width * scale) / 2;
@@ -370,8 +371,8 @@
   // ---- Castle outline designer ----
   // Matching only looks at each plot's ground floor (elevated floors have their own separate
   // footprints and stairwell constraints that don't belong in a single flat outline match).
-  function groundFloorName(plot) { return Object.keys(plot.floors)[0]; }
-  function groundFloor(plot) { return plot.floors[groundFloorName(plot)]; }
+  function groundFloorName() { return 'Ground Floor'; }
+  function groundFloor(plot) { return plot.floors['Ground Floor']; }
 
   // Canvas size = the single biggest ground-floor grid (by bounding-box area) across every
   // plot in the game, so anything drawable on it is at least in the right ballpark for some plot.
@@ -538,7 +539,7 @@
 
   function copyOutlineToPlot(m) {
     var plot = getPlot(m.sheet, m.plotId);
-    var floorName = groundFloorName(plot);
+    var floorName = groundFloorName();
     var plan = ensurePlan(m.sheet, m.plotId);
     var fp = ensureFloorPlan(plan, floorName);
     m.cells.forEach(function (cellObj) {
@@ -567,7 +568,7 @@
       badge.className = 'plot-badge';
       badge.innerHTML = '<div class="pid">#' + m.plotId + '</div><div class="ptiles">' + groupNameFor(m.sheet) + '</div>';
       badge.insertBefore(makePlotThumb(m.sheet, plot), badge.firstChild);
-      badge.onclick = function () { openPlot(m.sheet, m.plotId, groundFloorName(plot)); };
+      badge.onclick = function () { openPlot(m.sheet, m.plotId, groundFloorName()); };
       var copyBtn = document.createElement('button');
       copyBtn.className = 'copy-to-plot-btn';
       copyBtn.textContent = 'Copy to Plot';
@@ -581,23 +582,15 @@
   }
 
   // ---- Plot editor ----
-  // Ground Floor displays as 0, Floor N as N. Capped by default at 5 even though some plots'
-  // data goes up to Floor 6 (index 6) — floors above the cap aren't reachable from the UI.
-  // The cap is overridden by state.settings.maxFloors when the user turns on a custom limit.
-  var DEFAULT_FLOOR_CAP = 5;
-  function floorDisplayCap() {
-    return state.settings.customFloorLimit ? state.settings.maxFloors : DEFAULT_FLOOR_CAP;
-  }
-
+  // Ground Floor displays as 0, Floor N as N, up to FLOOR_CAP.
   function openPlot(sheet, plotId, floor) {
     if (!state.group || state.group.sheets.indexOf(sheet) === -1) {
       state.group = REGION_GROUPS.find(function (g) { return g.sheets.indexOf(sheet) !== -1; }) || null;
     }
     state.sheet = sheet;
     state.plotId = plotId;
-    var plot = getPlot(sheet, plotId);
-    var floorNames = Object.keys(plot.floors);
-    state.floor = (floor && floorNames.indexOf(floor) !== -1) ? floor : floorNames[0];
+    var names = allFloorNames();
+    state.floor = (floor && names.indexOf(floor) !== -1) ? floor : names[0];
     renderPlotView();
   }
 
@@ -605,11 +598,13 @@
     var plot = getPlot(state.sheet, state.plotId);
     el.plotTitle.textContent = groupNameFor(state.sheet) + ' — Plot #' + plot.id;
 
-    var floorNames = Object.keys(plot.floors);
-    var maxFloorIndex = Math.min(floorNames.length - 1, floorDisplayCap());
-    var floorIndex = floorNames.indexOf(state.floor);
+    var imgSrc = plotImageSrc(state.sheet, plot.id);
+    el.btnPlotImage.classList.toggle('hidden', !imgSrc);
+    if (imgSrc) { el.plotImageThumb.src = imgSrc; el.plotImageFull.src = imgSrc; }
+
+    var floorIndex = floorIndexOf(state.floor);
     el.floorSpinnerValue.textContent = floorIndex;
-    el.btnFloorUp.disabled = floorIndex >= maxFloorIndex;
+    el.btnFloorUp.disabled = floorIndex >= FLOOR_CAP;
     el.btnFloorDown.disabled = floorIndex <= 0;
 
     renderPalette(el.palette);
@@ -624,18 +619,16 @@
   }
 
   el.btnFloorUp.onclick = function () {
-    var plot = getPlot(state.sheet, state.plotId);
-    var floorNames = Object.keys(plot.floors);
-    var maxFloorIndex = Math.min(floorNames.length - 1, floorDisplayCap());
-    var idx = floorNames.indexOf(state.floor);
-    if (idx < maxFloorIndex) { state.floor = floorNames[idx + 1]; renderPlotView(); }
+    var idx = floorIndexOf(state.floor);
+    if (idx < FLOOR_CAP) { state.floor = floorNameAt(idx + 1); renderPlotView(); }
   };
   el.btnFloorDown.onclick = function () {
-    var plot = getPlot(state.sheet, state.plotId);
-    var floorNames = Object.keys(plot.floors);
-    var idx = floorNames.indexOf(state.floor);
-    if (idx > 0) { state.floor = floorNames[idx - 1]; renderPlotView(); }
+    var idx = floorIndexOf(state.floor);
+    if (idx > 0) { state.floor = floorNameAt(idx - 1); renderPlotView(); }
   };
+
+  el.btnPlotImage.onclick = function () { el.plotImageOverlay.classList.remove('hidden'); };
+  el.plotImageOverlay.onclick = function () { el.plotImageOverlay.classList.add('hidden'); };
 
   // ---- Floor copy/paste ----
   var floorClipboard = null; // { cells: {...}, edges: {...}, sourceLabel }
@@ -675,7 +668,7 @@
   el.btnPasteFloor.onclick = function () {
     if (!floorClipboard) return;
     var plot = getPlot(state.sheet, state.plotId);
-    var floor = plot.floors[state.floor];
+    var floor = getFloorTerrain(plot, state.floor);
     var interior = computeInterior(floor.cells, floor.width, floor.height);
     var plan = ensurePlan(state.sheet, state.plotId);
     var fp = ensureFloorPlan(plan, state.floor);
@@ -824,7 +817,7 @@
   }
 
   function renderGrid(plot) {
-    var floor = plot.floors[state.floor];
+    var floor = getFloorTerrain(plot, state.floor);
     var rows = floor.cells;
     var width = floor.width, height = floor.height;
     el.grid.style.gridTemplateColumns = 'repeat(' + width + ', var(--cell-size))';
@@ -836,9 +829,8 @@
     var floorPlan = fp.cells;
     var interior = computeInterior(rows, width, height);
 
-    var floorNames = Object.keys(plot.floors);
-    var curFloorIdx = floorNames.indexOf(state.floor);
-    var belowCells = curFloorIdx > 0 ? floorPlanCells(plan[floorNames[curFloorIdx - 1]]) : null;
+    var curFloorIdx = floorIndexOf(state.floor);
+    var belowCells = curFloorIdx > 0 ? floorPlanCells(plan[floorNameAt(curFloorIdx - 1)]) : null;
     el.floorBelowOverlay.style.gridTemplateColumns = el.grid.style.gridTemplateColumns;
     el.floorBelowOverlay.style.gridTemplateRows = el.grid.style.gridTemplateRows;
     el.floorBelowOverlay.innerHTML = '';
@@ -916,7 +908,7 @@
       }
     }
 
-    renderWallOverlay(fp, width, height);
+    renderWallOverlay(fp, width, height, interior);
   }
   document.addEventListener('mouseup', function () { painting = false; });
 
@@ -938,7 +930,7 @@
     });
   }
 
-  function renderWallOverlay(fp, width, height) {
+  function renderWallOverlay(fp, width, height, interior) {
     var svgNS = 'http://www.w3.org/2000/svg';
     var svg = el.wallOverlay;
     var pxW = width * CELL_PX, pxH = height * CELL_PX;
@@ -948,14 +940,22 @@
     svg.innerHTML = '';
     svg.classList.toggle('wall-active', state.layer === 'wall');
 
-    function makeEdge(key, x1, y1, x2, y2) {
+    function cellBuildable(r, c) {
+      return r >= 0 && r < height && c >= 0 && c < width && interior[r][c];
+    }
+
+    // Walls/fences/etc only make sense bordering the buildable interior — same area the
+    // floor layer restricts room painting to. An edge/vertex is placeable if at least one
+    // of its adjacent cells is buildable (so it can enclose a room), even if the other side
+    // falls outside the interior.
+    function makeEdge(key, x1, y1, x2, y2, buildable) {
       var group = document.createElementNS(svgNS, 'g');
       var placed = fp.edges[key];
 
       var visible = document.createElementNS(svgNS, 'line');
       visible.setAttribute('x1', x1); visible.setAttribute('y1', y1);
       visible.setAttribute('x2', x2); visible.setAttribute('y2', y2);
-      visible.setAttribute('stroke', placed ? placed.color : EDGE_IDLE_COLOR);
+      visible.setAttribute('stroke', placed ? placed.color : (buildable ? EDGE_IDLE_COLOR : 'transparent'));
       visible.setAttribute('stroke-width', placed ? placed.width : 1);
       visible.setAttribute('stroke-linecap', 'round');
       group.appendChild(visible);
@@ -965,12 +965,13 @@
       hit.setAttribute('x2', x2); hit.setAttribute('y2', y2);
       hit.setAttribute('stroke', 'transparent');
       hit.setAttribute('stroke-width', 12);
-      hit.setAttribute('class', 'edge-hit');
+      hit.setAttribute('class', 'edge-hit' + (buildable || placed ? '' : ' disabled'));
       var titleEl = document.createElementNS(svgNS, 'title');
-      titleEl.textContent = placed ? placed.label : 'Empty';
+      titleEl.textContent = placed ? placed.label : (buildable ? 'Empty' : 'Outside buildable area');
       group.appendChild(titleEl);
 
       function apply() {
+        if (!buildable && !state.wallTool.erase) return; // can only place bordering the buildable interior
         if (state.wallTool.point) return; // point tools (e.g. Pillar) don't paint edges
         if (state.wallTool.erase) {
           delete fp.edges[key];
@@ -998,26 +999,27 @@
 
     // Pillars sit on grid vertices (corners), not edges — a separate point layer
     // sharing the same fp.edges bag under a "p:r,c" key so save/copy/paste stay generic.
-    function makePoint(key, cx, cy) {
+    function makePoint(key, cx, cy, buildable) {
       var group = document.createElementNS(svgNS, 'g');
       var placed = fp.edges[key];
 
       var visible = document.createElementNS(svgNS, 'circle');
       visible.setAttribute('cx', cx); visible.setAttribute('cy', cy);
       visible.setAttribute('r', placed ? placed.width / 2 : POINT_IDLE_RADIUS);
-      visible.setAttribute('fill', placed ? placed.color : EDGE_IDLE_COLOR);
+      visible.setAttribute('fill', placed ? placed.color : (buildable ? EDGE_IDLE_COLOR : 'transparent'));
       group.appendChild(visible);
 
       var hit = document.createElementNS(svgNS, 'circle');
       hit.setAttribute('cx', cx); hit.setAttribute('cy', cy);
       hit.setAttribute('r', 8);
       hit.setAttribute('fill', 'transparent');
-      hit.setAttribute('class', 'edge-hit');
+      hit.setAttribute('class', 'edge-hit' + (buildable || placed ? '' : ' disabled'));
       var titleEl = document.createElementNS(svgNS, 'title');
-      titleEl.textContent = placed ? placed.label : 'Empty';
+      titleEl.textContent = placed ? placed.label : (buildable ? 'Empty' : 'Outside buildable area');
       group.appendChild(titleEl);
 
       function apply() {
+        if (!buildable && !state.wallTool.erase) return; // can only place bordering the buildable interior
         if (!state.wallTool.point && !state.wallTool.erase) return; // line tools don't paint points
         if (state.wallTool.erase) {
           delete fp.edges[key];
@@ -1045,17 +1047,21 @@
 
     for (var r = 0; r <= height; r++) {
       for (var c = 0; c < width; c++) {
-        makeEdge('h:' + r + ',' + c, c * CELL_PX, r * CELL_PX, (c + 1) * CELL_PX, r * CELL_PX);
+        var hBuildable = cellBuildable(r - 1, c) || cellBuildable(r, c);
+        makeEdge('h:' + r + ',' + c, c * CELL_PX, r * CELL_PX, (c + 1) * CELL_PX, r * CELL_PX, hBuildable);
       }
     }
     for (var r2 = 0; r2 < height; r2++) {
       for (var c2 = 0; c2 <= width; c2++) {
-        makeEdge('v:' + r2 + ',' + c2, c2 * CELL_PX, r2 * CELL_PX, c2 * CELL_PX, (r2 + 1) * CELL_PX);
+        var vBuildable = cellBuildable(r2, c2 - 1) || cellBuildable(r2, c2);
+        makeEdge('v:' + r2 + ',' + c2, c2 * CELL_PX, r2 * CELL_PX, c2 * CELL_PX, (r2 + 1) * CELL_PX, vBuildable);
       }
     }
     for (var r3 = 0; r3 <= height; r3++) {
       for (var c3 = 0; c3 <= width; c3++) {
-        makePoint('p:' + r3 + ',' + c3, c3 * CELL_PX, r3 * CELL_PX);
+        var pBuildable = cellBuildable(r3 - 1, c3 - 1) || cellBuildable(r3 - 1, c3) ||
+          cellBuildable(r3, c3 - 1) || cellBuildable(r3, c3);
+        makePoint('p:' + r3 + ',' + c3, c3 * CELL_PX, r3 * CELL_PX, pBuildable);
       }
     }
   }
@@ -1143,66 +1149,7 @@
     renderHome();
   };
 
-  // ---- Settings ----
-  function syncSettingsUI() {
-    el.settingsCustomFloorLimit.checked = state.settings.customFloorLimit;
-    el.settingsMaxFloors.value = state.settings.maxFloors;
-    el.settingsMaxFloors.disabled = !state.settings.customFloorLimit;
-  }
-
-  el.btnSettings.onclick = function () { el.settingsOverlay.classList.remove('hidden'); };
-  el.btnSettingsClose.onclick = function () { el.settingsOverlay.classList.add('hidden'); };
-  el.settingsOverlay.onclick = function (e) {
-    if (e.target === el.settingsOverlay) el.settingsOverlay.classList.add('hidden');
-  };
-
-  // If the open plot's current floor is now above the (lower) cap, drop back to the new
-  // max floor and delete that plot's plan data on the floors that became unreachable.
-  function enforceFloorCap() {
-    if (state.view !== 'plot') return;
-    var plot = getPlot(state.sheet, state.plotId);
-    var floorNames = Object.keys(plot.floors);
-    var maxFloorIndex = Math.min(floorNames.length - 1, floorDisplayCap());
-    var curIndex = floorNames.indexOf(state.floor);
-    if (curIndex <= maxFloorIndex) return;
-    var plan = ensurePlan(state.sheet, state.plotId);
-    for (var i = maxFloorIndex + 1; i < floorNames.length; i++) delete plan[floorNames[i]];
-    state.floor = floorNames[maxFloorIndex];
-    saveToStorage();
-  }
-
-  el.settingsCustomFloorLimit.onchange = function () {
-    state.settings.customFloorLimit = el.settingsCustomFloorLimit.checked;
-    el.settingsMaxFloors.disabled = !state.settings.customFloorLimit;
-    saveSettings();
-    enforceFloorCap();
-    if (state.view === 'plot') renderPlotView();
-  };
-
-  el.settingsMaxFloors.oninput = function () {
-    var n = parseInt(el.settingsMaxFloors.value, 10);
-    if (!Number.isInteger(n) || n < 0) return;
-    state.settings.maxFloors = n;
-    saveSettings();
-    enforceFloorCap();
-    if (state.view === 'plot') renderPlotView();
-  };
-  el.settingsMaxFloors.onblur = function () {
-    el.settingsMaxFloors.value = state.settings.maxFloors;
-  };
-
-  el.btnClearSettings.onclick = function () {
-    if (!confirm('Reset settings to default and delete the saved copy?')) return;
-    state.settings = { customFloorLimit: false, maxFloors: 5 };
-    try { localStorage.removeItem(SETTINGS_KEY); } catch (err) {}
-    syncSettingsUI();
-    enforceFloorCap();
-    if (state.view === 'plot') renderPlotView();
-  };
-
   loadFromStorage();
-  loadSettings();
   loadCustomRooms();
-  syncSettingsUI();
   renderHome();
 })();
